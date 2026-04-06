@@ -16,57 +16,51 @@ from dash import Dash, html, dcc, Input, Output
 import dash_bootstrap_components as dbc
 
 # ═══════════════════════════════════════════════════════════════
-# CELL 3 — Load & Prepare Data  
+# CELL 3 — Load & Prepare Data (MEMORY OPTIMIZED FOR RENDER)
 # ═══════════════════════════════════════════════════════════════
-FILE_PATH = "Main data for Assignment - Copy.csv"
-df_raw = pd.read_csv(FILE_PATH)
+import gc # Python's Garbage Collector
 
-# 1. Main data
-df_raw = _raw.iloc[:, :16].copy()
+FILE_PATH = "Main data for Assignment - Copy.csv"
+
+# 1. Force Pandas to only read the first 17 columns (ignores ghost columns)
+df_raw = pd.read_csv(FILE_PATH, usecols=range(17), low_memory=False)
+
 df_raw.columns = [
     'country', 'year', 'co2_total', 'co2_share', 'co2_per_capita',
-    'co2_consumption', 'population', 'other_renewables', 'biofuels', 'solar', 'wind',
+    'co2_consumption', 'gdp_per_capita', 'population',
+    'other_renewables', 'biofuels', 'solar', 'wind',
     'hydropower', 'nuclear', 'gas', 'coal', 'oil'
 ]
- 
-# 2. Bubble GDP lookup — 2023 only, for wealth-vs-emissions bubble chart
-_gdp_bubble = _raw.iloc[:, 16:19].dropna(subset=[_raw.columns[16]]).copy()
-_gdp_bubble.columns = ['country', 'year', 'gdp_per_capita']
-_gdp_bubble = (
-    _gdp_bubble[_gdp_bubble['year'] == 2023]
-    .set_index('country')['gdp_per_capita']
-    .to_dict()
-)
- 
-# 3. Time-series GDP 1990-2024 — for scatter chart + merging into main df
-_gdp_ts = _raw.iloc[:, 19:22].dropna(subset=[_raw.columns[21]]).copy()
-_gdp_ts.columns = ['country', 'year', 'gdp_per_capita']
-_gdp_ts['year'] = _gdp_ts['year'].astype(int)
- 
-# 4. Merge time-series GDP into main df
+
+# 2. Immediately drop any ghost rows where the country name is missing
+df_raw = df_raw.dropna(subset=['country'])
+
 df = df_raw[df_raw['year'] >= 1990].copy()
-df = df.merge(_gdp_ts, on=['country', 'year'], how='left')
- 
+
+# 3. Extract the ONLY 3 countries your dashboard actually charts
 japan = df[df['country'] == 'Japan'].reset_index(drop=True)
 india = df[df['country'] == 'India'].reset_index(drop=True)
 world = df[df['country'] == 'World'].reset_index(drop=True)
- 
+
+# 4. THE MAGIC BULLET: Delete the massive global datasets from RAM immediately
+del df_raw
+del df
+gc.collect() # Forces the server to instantly free up the memory
+
+# 5. Continue with your normal calculations
 japan['co2_mt']     = japan['co2_total'] / 1e9
-japan['renewables'] = (
-    japan['solar'] + japan['wind'] + japan['hydropower'] + japan['other_renewables']
-)
- 
+japan['renewables'] = japan['solar'] + japan['wind'] + japan['hydropower'] + japan['other_renewables']
+
 co2_2023      = japan[japan['year'] == 2023]['co2_mt'].values[0]
 pc_2023       = japan[japan['year'] == 2023]['co2_per_capita'].values[0]
-pc_1990       = japan[japan['year'] == 1990]['co2_per_capita'].values[0]
-pct_change    = round(((pc_2023 - pc_1990) / pc_1990) * 100, 1)
+pc_2005       = japan[japan['year'] == 1990]['co2_per_capita'].values[0]
+pct_change    = round(((pc_2023 - pc_2005) / pc_2005) * 100, 1)
 share_2023    = japan[japan['year'] == 2023]['co2_share'].values[0]
 world_pc_2023 = world[world['year'] == 2023]['co2_per_capita'].values[0]
 india_pc_2023 = india[india['year'] == 2023]['co2_per_capita'].values[0]
- 
-print("✅ Data loaded")
-print(f"   CO₂ 2023: {co2_2023:.1f} MtCO₂ | Per capita: {pc_2023:.2f} t | Change since 1990: {pct_change}%")
- 
+
+print("✅ Data loaded & Memory cleared")
+print(f"   CO₂ 2023: {co2_2023:.1f} MtCO₂ | Per capita: {pc_2023:.2f} t | Change: {pct_change}%") 
 
 # ═══════════════════════════════════════════════════════════════
 # CELL 4 — Design Tokens (Light Wabi-Sabi theme)
